@@ -17,6 +17,8 @@ def main():
         st.session_state.processed_files = {}
     if 'processed_content' not in st.session_state:
         st.session_state.processed_content = None
+    if 'current_summary' not in st.session_state:
+        st.session_state.current_summary = None
     
     def process_uploaded_file(file):
         content = file.read()
@@ -32,6 +34,7 @@ def main():
             "processed": processed_content
         }
         st.session_state.processed_content = processed_content
+        st.session_state.current_summary = None  # Reset summary when new file is uploaded
     
     # File upload section
     st.subheader("Upload Document")
@@ -43,30 +46,40 @@ def main():
     if st.session_state.processed_content:
         st.subheader("Document Analysis")
         
-        # Summary Generation
-        if st.button("Generate Summary"):
-            with st.spinner("Generating summary..."):
-                if isinstance(st.session_state.processed_content, dict):
-                    content_for_summary = str(st.session_state.processed_content.get("content", str(st.session_state.processed_content)))
-                else:
-                    content_for_summary = str(st.session_state.processed_content)
-                    
-                summary = ollama_service.generate_summary(content_for_summary, "document")
-                st.text_area("Summary", summary, height=200)
-                
-                # PDF Download
-                pdf_bytes = pdf_generator.create_summary_pdf(summary, "document_summary")
-                st.download_button(
-                    label="Download Summary PDF",
-                    data=pdf_bytes,
-                    file_name="document_summary.pdf",
-                    mime="application/pdf"
-                )
+        # Create two columns for summary and PDF download
+        col1, col2 = st.columns([3, 1])
         
-        # Document Querying
+        # Summary Generation
+        with col1:
+            if st.button("Generate Summary"):
+                with st.spinner("Generating summary..."):
+                    if isinstance(st.session_state.processed_content, dict):
+                        content_for_summary = str(st.session_state.processed_content.get("content", str(st.session_state.processed_content)))
+                    else:
+                        content_for_summary = str(st.session_state.processed_content)
+                    
+                    summary = ollama_service.generate_summary(content_for_summary, "document")
+                    st.session_state.current_summary = summary
+                    st.text_area("Summary", summary, height=200)
+        
+        # PDF Download
+        with col2:
+            if st.session_state.current_summary:
+                try:
+                    pdf_bytes = pdf_generator.create_summary_pdf(st.session_state.current_summary, "document_summary")
+                    st.download_button(
+                        label="Download Summary PDF",
+                        data=pdf_bytes,
+                        file_name="document_summary.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error("Error generating PDF. Please try again.")
+        
+        # Document Querying - Always visible after file upload
         st.subheader("Ask Questions About the Document")
         user_query = st.text_input("Enter your question:")
-        if user_query and st.button("Get Answer"):
+        if user_query:  # Remove the button to make it more responsive
             with st.spinner("Analyzing document..."):
                 if isinstance(st.session_state.processed_content, dict):
                     content_for_query = str(st.session_state.processed_content.get("content", str(st.session_state.processed_content)))
