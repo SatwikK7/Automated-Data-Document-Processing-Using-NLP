@@ -20,4 +20,6 @@ Automated Data Document Processing Using NLP simplifies document analysis using 
    git clone https://github.com/your-username/automated-data-processing-nlp.git
 3. Activate the virtual environment
 4. Install dependencies
-5. run using command streamlit run web/app.py
+5. run using command:
+   ```bash
+   streamlit run web/app.py
