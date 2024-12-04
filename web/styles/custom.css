@@ -1,0 +1,59 @@
+/* Root variables for custom colors */
+:root {
+    --primary-color: #856868;
+    --secondary-color: #3498DB;
+    --background-color: #F8F9FA;
+    --text-color: #ffffff;
+    --border-color: #E9ECEF;
+}
+
+/* General styles */
+body {
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-family: 'Arial', sans-serif;
+}
+
+h1, h2, h3 {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+p {
+    color: var(--text-color);
+}
+
+/* Button customization (uses Bootstrap buttons for base styles) */
+.btn-success {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+    transition: all 0.3s ease;
+}
+
+.btn-success:hover {
+    background-color: #2980B9;
+}
+
+/* File upload container styling */
+.uploadedFile {
+    background-color: white;
+    border-radius: 4px;
+    padding: 1rem;
+    margin: 1rem 0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+/* Card styling for results */
+.css-card {
+    background-color: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    margin: 1rem 0;
+}
+
+/* Alert messages */
+.stAlert {
+    border-radius: 4px;
+    margin: 1rem 0;
+} 
