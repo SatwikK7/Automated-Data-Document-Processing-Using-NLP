@@ -47,50 +47,48 @@ def extract_signatures(pdf_path):
     doc.close()
     return True
 
-def trim_white_borders(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
-
-    # Find contours again on the trimmed region
-    coords = cv2.findNonZero(thresh)
-    if coords is not None:
-        x, y, w, h = cv2.boundingRect(coords)
-        img = img[y:y+h, x:x+w]
-    return img
-
-
 def clean_signature(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    binary = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, 15, 8
-    )
-
+    
+    binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 8)
+    
     kernel = np.ones((2, 2), np.uint8)
     cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
-
+    
     contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    
     if contours:
-        filtered_contours = [c for c in contours if cv2.contourArea(c) > 100]
-
-        if filtered_contours:
-            all_points = np.concatenate(filtered_contours)
-            x, y, w, h = cv2.boundingRect(all_points)
-
-            signature_region = img[y:y+h, x:x+w]
-
+        signature_contours = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            x, y, w, h = cv2.boundingRect(contour)
+            aspect_ratio = w / h if h > 0 else 0
+            
+            if (area > 200 and area < 50000 and 
+                w > 30 and h > 15 and
+                1.5 < aspect_ratio < 15):
+                signature_contours.append(contour)
+        
+        if signature_contours:
+            signature_contours.sort(key=cv2.contourArea, reverse=True)
+            main_contour = signature_contours[0]
+            
+            x, y, w, h = cv2.boundingRect(main_contour)
+            
+            padding = 10
+            x_start = max(0, x - padding)
+            y_start = max(0, y - padding)
+            x_end = min(img.shape[1], x + w + padding)
+            y_end = min(img.shape[0], y + h + padding)
+            
+            signature_region = img[y_start:y_end, x_start:x_end]
+            
             if signature_region.size > 0:
-                # Final trimming of any extra white borders
-                signature_region = trim_white_borders(signature_region)
                 enhanced = cv2.convertScaleAbs(signature_region, alpha=1.1, beta=5)
                 return enhanced
-
+    
     return img
-
-
 
 def main():
     pdf_files = ["Demo.pdf", "sample_contract.pdf", "document.pdf"]
