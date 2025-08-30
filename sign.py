@@ -1,116 +1,63 @@
-import cv2
+# enrollment.py
+import torch
 import numpy as np
-import fitz
+import pickle
 from PIL import Image
+from torchvision import transforms
 import os
-import io
 
-def extract_signatures(pdf_path):
-    doc = fitz.open(pdf_path)
-    last_page = doc[-1]
-    page_rect = last_page.rect
-    page_width = page_rect.width
-    page_height = page_rect.height
-    
-    zoom_matrix = fitz.Matrix(4.0, 4.0)
-    
-    company_rect = fitz.Rect(
-        page_width * 0.02,
-        page_height * 0.4,
-        page_width * 0.48,
-        page_height * 0.98
-    )
-    
-    counterparty_rect = fitz.Rect(
-        page_width * 0.52,
-        page_height * 0.4,
-        page_width * 0.98,
-        page_height * 0.98
-    )
-    
-    company_pix = last_page.get_pixmap(matrix=zoom_matrix, clip=company_rect)
-    img_data = company_pix.tobytes("png")
-    pil_img = Image.open(io.BytesIO(img_data))
-    company_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    
-    counterparty_pix = last_page.get_pixmap(matrix=zoom_matrix, clip=counterparty_rect)
-    img_data = counterparty_pix.tobytes("png")
-    pil_img = Image.open(io.BytesIO(img_data))
-    counterparty_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    
-    company_cleaned = clean_signature(company_img)
-    counterparty_cleaned = clean_signature(counterparty_img)
-    
-    cv2.imwrite("company_signature.png", company_cleaned, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-    cv2.imwrite("counterparty_signature.png", counterparty_cleaned, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-    
-    doc.close()
-    return True
+# Import SigNet model from sigver package
+from sigver.featurelearning.models import SigNet
 
-def clean_signature(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 8)
-    
-    kernel = np.ones((2, 2), np.uint8)
-    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
-    
-    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    if contours:
-        signature_contours = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            x, y, w, h = cv2.boundingRect(contour)
-            aspect_ratio = w / h if h > 0 else 0
-            
-            if (area > 200 and area < 50000 and 
-                w > 30 and h > 15 and
-                1.5 < aspect_ratio < 15):
-                signature_contours.append(contour)
-        
-        if signature_contours:
-            signature_contours.sort(key=cv2.contourArea, reverse=True)
-            main_contour = signature_contours[0]
-            
-            x, y, w, h = cv2.boundingRect(main_contour)
-            
-            padding = 10
-            x_start = max(0, x - padding)
-            y_start = max(0, y - padding)
-            x_end = min(img.shape[1], x + w + padding)
-            y_end = min(img.shape[0], y + h + padding)
-            
-            signature_region = img[y_start:y_end, x_start:x_end]
-            
-            if signature_region.size > 0:
-                enhanced = cv2.convertScaleAbs(signature_region, alpha=1.1, beta=5)
-                return enhanced
-    
-    return img
+# -- Change this to your folder with reference signature images --
+# reference_images = { "CounterpartyName": "path/to/ref_image.png", ... }
+reference_images = {
+    "auth1": "/content/drive/MyDrive/Dataset/Database/auth1/00200002.png"
+}
 
-def main():
-    pdf_files = ["Demo.pdf", "sample_contract.pdf", "document.pdf"]
-    pdf_file = None
-    
-    for file in pdf_files:
-        if os.path.exists(file):
-            pdf_file = file
-            break
-    
-    if not pdf_file:
-        print("No PDF found")
-        return
-    
-    print(f"Processing: {pdf_file}")
-    
-    success = extract_signatures(pdf_file)
-    
-    if success:
-        print("Generated files:")
-        print("- company_signature.png")
-        print("- counterparty_signature.png")
+MODEL_PATH = "/content/drive/MyDrive/Dataset/Database/signet.pth"   # file you downloaded from sigver repo links
+OUTPUT_LOOKUP = "/content/drive/MyDrive/Dataset/Database/signature_lookup.pkl"
+
+# Preprocessing used by sigver (as in its README):
+transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=1),
+    transforms.Resize((170, 242)),          # resize H x W used in sigver README
+    transforms.CenterCrop((150, 220)),      # center crop used at test time
+    transforms.ToTensor()                   # to tensor -> automatically divides by 255.0
+])
+
+def load_model(model_path):
+    # The saved file contains (state_dict, classification_layer, forg_layer)
+    saved = torch.load(model_path, map_location="cpu")
+    state_dict = saved[0] if isinstance(saved, (list, tuple)) else saved
+    model = SigNet()
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model
+
+def get_embedding(model, image_path):
+    img = Image.open(image_path).convert("RGB")
+    x = transform(img).unsqueeze(0)  # shape 1 x 1 x H x W
+    with torch.no_grad():
+        feat = model(x)               # output embedding tensor (1 x D)
+    return feat.cpu().numpy().squeeze()  # return 1D numpy vector
+
+def create_lookup(model, ref_images, out_file=OUTPUT_LOOKUP):
+    lookup = {}
+    for name, path in ref_images.items():
+        if not os.path.exists(path):
+            print(f"[WARN] reference image not found for {name}: {path}")
+            continue
+        emb = get_embedding(model, path)
+        lookup[name] = emb.astype(np.float32)
+        print(f"[ENROLL] {name} -> embedding shape {emb.shape}")
+
+    with open(out_file, "wb") as f:
+        pickle.dump(lookup, f)
+    print(f"[DONE] saved lookup to {out_file}. Contains {len(lookup)} entries.")
 
 if __name__ == "__main__":
-    main()
+    if not os.path.exists(MODEL_PATH):
+        raise SystemExit("Model file not found. Download signet.pth and place under models/signet.pth")
+    model = load_model(MODEL_PATH)
+    create_lookup(model, reference_images)
